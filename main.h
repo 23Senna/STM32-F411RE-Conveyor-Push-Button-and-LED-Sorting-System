@@ -64,6 +64,14 @@ void Error_Handler(void);
 #define RPWM_GPIO_Port GPIOA
 #define LPWM_Pin GPIO_PIN_7
 #define LPWM_GPIO_Port GPIOA
+#define IN3_Pin GPIO_PIN_5
+#define IN3_GPIO_Port GPIOC
+#define IN2_Pin GPIO_PIN_6
+#define IN2_GPIO_Port GPIOC
+#define IN1_Pin GPIO_PIN_8
+#define IN1_GPIO_Port GPIOC
+#define BTN_START_STOP_Pin GPIO_PIN_9
+#define BTN_START_STOP_GPIO_Port GPIOC
 #define R_EN_Pin GPIO_PIN_4
 #define R_EN_GPIO_Port GPIOB
 #define L_EN_Pin GPIO_PIN_5
