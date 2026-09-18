@@ -21,16 +21,21 @@
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
-#include "motor.h"
-#include "encoder.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include "motor.h"
+#include "encoder.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum {
+    STATE_STANDBY,
+    STATE_RUNNING,
+    STATE_HALTED
+} SystemState;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -46,7 +51,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+SystemState currentState = STATE_STANDBY;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,28 +108,76 @@ hConveyor.ren_port = GPIOB;  hConveyor.ren_pin = GPIO_PIN_4;
 hConveyor.len_port = GPIOB;  hConveyor.len_pin = GPIO_PIN_5;
 Motor_Init(&hConveyor);
 Encoder_Init();
+
+// Lamps off first (active-low: SET = off), then settle on Standby (yellow)
+HAL_GPIO_WritePin(GPIOC, IN1_Pin | IN2_Pin | IN3_Pin, GPIO_PIN_SET);
+HAL_Delay(50);
+HAL_GPIO_WritePin(GPIOC, IN2_Pin, GPIO_PIN_RESET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+int32_t lastPrint = 0;
+GPIO_PinState lastBtnState = GPIO_PIN_RESET;   // NEW -- tracks previous reading for edge detection
+
   while (1)
   {
-	  Motor_SetSpeed(&hConveyor, 40);   // forward, 70%
-	  Encoder_SetDirection(1);     // forward
+	  // ==========================================
+	  	  // BAGIAN 1: PEMBACAAN INPUT (TOGGLE START/STOP, 1 BUTTON)
+	  	  // ==========================================
+	  GPIO_PinState btnState = HAL_GPIO_ReadPin(BTN_START_STOP_GPIO_Port, BTN_START_STOP_Pin);
 
-	  uint32_t lastPrint = 0;
+	  	  if (btnState == GPIO_PIN_SET && lastBtnState == GPIO_PIN_RESET)   // fresh press (NC: pressed = SET)
+	  	  {
+	  		  currentState = (currentState == STATE_RUNNING) ? STATE_HALTED : STATE_RUNNING;
+	  		  HAL_Delay(250); // debounce
+	  	  }
+	  	  lastBtnState = btnState;
 
-	  if (HAL_GetTick() - lastPrint >= 200)      // send a reading every 200ms
-	        {
-	            lastPrint = HAL_GetTick();
+	  // ==========================================
+	  // BAGIAN 2: EKSEKUSI OUTPUT BERDASARKAN STATE
+	  // ==========================================
+	  switch (currentState)
+	  {
+		  case STATE_STANDBY:
+			  HAL_GPIO_WritePin(GPIOC, IN1_Pin, GPIO_PIN_RESET);   // Merah mati
+			  HAL_GPIO_WritePin(GPIOC, IN2_Pin, GPIO_PIN_SET);     // Kuning nyala
+			  HAL_GPIO_WritePin(GPIOC, IN3_Pin, GPIO_PIN_RESET);   // Hijau mati
+			  Motor_Stop(&hConveyor);
+			  Encoder_SetDirection(0);
+			  break;
 
-	            float position_mm = Encoder_GetPositionMM(PULSES_PER_REV, WHEEL_CIRCUMFERENCE_MM);
+		  case STATE_RUNNING:
+			  HAL_GPIO_WritePin(GPIOC, IN1_Pin, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(GPIOC, IN2_Pin, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(GPIOC, IN3_Pin, GPIO_PIN_SET);     // Hijau nyala
+			  Motor_SetSpeed(&hConveyor, 40);   // forward, 40%
+			  Encoder_SetDirection(1);
+			  break;
 
-	            char msg[64];
-	            int len = snprintf(msg, sizeof(msg), "Position: %.2f mm\r\n", position_mm);
-	            HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
-	        }
-	  /* USER CODE END WHILE */
+		  case STATE_HALTED:
+			  HAL_GPIO_WritePin(GPIOC, IN1_Pin, GPIO_PIN_SET);     // Merah nyala
+			  HAL_GPIO_WritePin(GPIOC, IN2_Pin, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(GPIOC, IN3_Pin, GPIO_PIN_RESET);
+			  Motor_Stop(&hConveyor);
+			  Encoder_SetDirection(0);
+			  break;
+	  }
+
+	  // ==========================================
+	  // BAGIAN 3: LAPORAN POSISI VIA UART (every 200ms)
+	  // ==========================================
+	  if (HAL_GetTick() - lastPrint >= 200)
+	  {
+		  lastPrint = HAL_GetTick();
+
+		  float position_mm = Encoder_GetPositionMM(PULSES_PER_REV, WHEEL_CIRCUMFERENCE_MM);
+
+		  char msg[64];
+		  int len = snprintf(msg, sizeof(msg), "State: %d | Position: %.2f mm\r\n", currentState, position_mm);
+		  HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+	  }
+    /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
